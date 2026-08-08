@@ -1,15 +1,15 @@
 ---
 name: bookmark-everything
-description: Save, organize, and retrieve Omer's bookmarks/links as markdown files. Use when Omer sends a URL to save, asks to find a previously saved link, or wants his link library searched.
+description: Save, organize, and retrieve the user's bookmarks/links as markdown files. Use when the user sends a URL to save, asks to find a previously saved link, or wants his link library searched.
 metadata:
   tags: [bookmarks, links, save, organize, read-it-later, search]
   home_channels: [telegram]
-  instructions: When Omer sends a URL in any chat, browse it to understand what it is, then save it to the bookmark store with AI-generated tags. When Omer asks to find a saved link, search the store and reply with the matches.
+  instructions: When the user sends a URL in any chat, browse it to understand what it is, then save it to the bookmark store with AI-generated tags. When the user asks to find a saved link, search the store and reply with the matches.
 ---
 
 # Bookmark Everything
 
-Karakeep-style bookmarking with zero infrastructure: no server, no UI, no external API. Just markdown files + a stdlib Python CLI. When Omer drops a link in chat, Sammie saves it. When he asks for something, Sammie searches and returns it.
+Karakeep-style bookmarking with zero infrastructure: no server, no UI, no external API. Just markdown files + a stdlib Python CLI. When the user drops a link in chat, Sammie saves it. When he asks for something, Sammie searches and returns it.
 
 ## Storage
 
@@ -34,7 +34,7 @@ Self-hostable bookmark app: links, notes, images, AI tagging, full-text search.
 
 - **CLI:** `python3 ~/bookmark-everything/scripts/bm.py <cmd>` (alias: `bm`)
 
-## Workflow: Save a Link (Omer sends a URL)
+## Workflow: Save a Link (the user sends a URL)
 
 1. **Browse the URL first** — understand what it actually is (web_extract or browser).
 2. **Title:** use the real page/repo title, not the raw URL.
@@ -45,9 +45,9 @@ Self-hostable bookmark app: links, notes, images, AI tagging, full-text search.
    ```bash
    bm add "<url>" --title "..." --tags "tag1,tag2,tag3" --category "tools" --summary "..."
    ```
-7. Confirm to Omer: id + title + tags. Keep it short.
+7. Confirm to the user: id + title + tags. Keep it short.
 
-## Workflow: Retrieve (Omer asks for a saved link)
+## Workflow: Retrieve (the user asks for a saved link)
 
 ```bash
 bm search "<query>"            # ranked by title/tags/category/summary/url
@@ -62,7 +62,7 @@ Then reply with the best match(es): title, url, tags. If nothing matches, say so
 
 ## Conventions
 
-- **Never delete** a bookmark unless Omer explicitly asks.
+- **Never delete** a bookmark unless the user explicitly asks.
 - **Never store secrets** in summaries or tags (API keys, tokens, passwords).
 - **Keep tags consistent** — reuse existing tags (check `bm tags`) before inventing new ones.
 - If a URL fails to load, save it anyway with what you know (title from search results if available) and note `[unverified]` in the summary.
@@ -71,4 +71,4 @@ Then reply with the best match(es): title, url, tags. If nothing matches, say so
 
 - `bm export --format md` → full dump (for backup/porting)
 - `bm export --format json` → machine-readable dump
-- Store lives outside the repo — the repo is the skill, not the data. Backups of the store are Omer's call (suggest occasionally).
+- Store lives outside the repo — the repo is the skill, not the data. Backups of the store are the user's call (suggest occasionally).
