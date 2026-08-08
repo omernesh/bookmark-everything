@@ -26,6 +26,12 @@ from pathlib import Path
 DATA_DIR = Path.home() / ".hermes" / "bookmarks"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+# Supermemory integration (semantic search layer). Local instance on localhost
+# auto-applies its API key, so no credentials are needed here.
+SM_URL = "http://localhost:6767"
+SM_CONTAINER = "hermes-memory"
+INDEX_MARKER = DATA_DIR / ".supermemory-indexed"
+
 FIELD_WEIGHT = {"title": 3, "tags": 2, "category": 2, "summary": 1, "url": 1}
 
 
@@ -87,6 +93,106 @@ def write_frontmatter(meta: dict, body: str) -> str:
     return "\n".join(lines)
 
 
+# ---------- Supermemory integration ----------
+
+def sm_alive() -> bool:
+    try:
+        with urllib.request.urlopen(f"{SM_URL}/v3/health", timeout=3) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def sm_index(meta: dict, body: str) -> bool:
+    """Push one bookmark to supermemory as a document. Returns True on accept."""
+    content = (
+        f"Bookmark: {meta['title']}\n"
+        f"URL: {meta['url']}\n"
+        f"Tags: {', '.join(meta.get('tags') or [])}\n"
+        f"Category: {meta.get('category')}\n"
+        f"Summary: {body}\n"
+    )
+    payload = json.dumps(
+        {
+            "content": content,
+            "containerTag": SM_CONTAINER,
+            "metadata": {"type": "bookmark", "id": meta["id"], "url": meta["url"]},
+        }
+    ).encode()
+    req = urllib.request.Request(
+        f"{SM_URL}/v3/documents",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.status in (200, 201, 202)
+    except Exception:
+        return False
+
+
+def sm_search(q: str) -> list[dict]:
+    """Semantic search over supermemory, returning bookmark hits only."""
+    payload = json.dumps(
+        {"q": q, "containerTag": SM_CONTAINER, "searchMode": "memories"}
+    ).encode()
+    req = urllib.request.Request(
+        f"{SM_URL}/v4/search",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception:
+        return []
+    hits: dict[str, dict] = {}
+    for r in data.get("results", []):
+        meta = r.get("metadata") or {}
+        if meta.get("type") != "bookmark":
+            continue
+        bid = meta.get("id")
+        if not bid:
+            continue
+        sim = r.get("similarity", 0)
+        # dedupe per bookmark, keep best similarity
+        if bid not in hits or sim > hits[bid]["similarity"]:
+            hits[bid] = {
+                "id": bid,
+                "url": meta.get("url", ""),
+                "memory": r.get("memory", ""),
+                "similarity": sim,
+            }
+    return sorted(hits.values(), key=lambda h: h["similarity"], reverse=True)
+
+
+def indexed_ids() -> set[str]:
+    if INDEX_MARKER.exists():
+        return {l.strip() for l in INDEX_MARKER.read_text().splitlines() if l.strip()}
+    return set()
+
+
+def mark_indexed(bid: str) -> None:
+    ids = indexed_ids()
+    ids.add(bid)
+    INDEX_MARKER.write_text("\n".join(sorted(ids)) + "\n")
+
+
+def index_one(meta: dict, body: str, force: bool = False) -> bool:
+    if not force and meta["id"] in indexed_ids():
+        return True  # already indexed
+    if not sm_alive():
+        print(f"skipped supermemory index (server down): {meta['id']}", file=sys.stderr)
+        return False
+    if sm_index(meta, body):
+        mark_indexed(meta["id"])
+        return True
+    print(f"supermemory index failed: {meta['id']}", file=sys.stderr)
+    return False
+
+
 def add(args) -> int:
     url = args.url
     title = args.title or fetch_title(url) or url
@@ -109,6 +215,10 @@ def add(args) -> int:
     path.write_text(write_frontmatter(meta, body), encoding="utf-8")
     print(f"saved: {path}")
     print(f"id: {meta['id']}")
+    if index_one(meta, body):
+        print("indexed to supermemory (semantic search enabled)")
+    else:
+        print("note: not in supermemory yet (run: bm index --force)", file=sys.stderr)
     return 0
 
 
@@ -153,6 +263,55 @@ def search(args) -> int:
         print(f"    {meta.get('url')}")
         print(f"    tags: {', '.join(meta.get('tags') or [])} | category: {meta.get('category')}")
     print(f"\n{len(results)} result(s)")
+    return 0
+
+
+def semantic_search(args) -> int:
+    """Semantic search via supermemory; falls back to keyword search if down."""
+    if not sm_alive():
+        print("supermemory down — falling back to keyword search", file=sys.stderr)
+        return search(args)
+    hits = sm_search(args.query or "")
+    if not hits:
+        print("no semantic matches; trying keyword search", file=sys.stderr)
+        return search(args)
+    if args.limit:
+        hits = hits[: args.limit]
+    if args.json:
+        print(json.dumps(hits, ensure_ascii=False, indent=2))
+        return 0
+    for h in hits:
+        path = DATA_DIR / f"{h['id']}.md"
+        title = h["memory"].splitlines()[0][:100] if h["memory"] else h["id"]
+        if path.exists():
+            meta = parse_frontmatter(path)
+            if meta:
+                title = meta.get("title", title)
+        print(f"[{h['similarity']:.2f}] {h['id']}")
+        print(f"    {title}")
+        print(f"    {h.get('url') or h['id']}")
+    print(f"\n{len(hits)} semantic result(s)")
+    return 0
+
+
+def index_all(args) -> int:
+    """Index all bookmarks into supermemory (skip already-indexed unless --force)."""
+    if not sm_alive():
+        print("supermemory is down — nothing indexed", file=sys.stderr)
+        return 1
+    done = skipped = failed = 0
+    for path in sorted(DATA_DIR.glob("*.md")):
+        meta = parse_frontmatter(path)
+        if not meta:
+            continue
+        body = path.read_text(encoding="utf-8").split("---", 2)[-1].strip()
+        if index_one(meta, body, force=args.force):
+            done += 1
+        elif meta["id"] in indexed_ids():
+            skipped += 1
+        else:
+            failed += 1
+    print(f"indexed: {done}, already indexed: {skipped}, failed: {failed}")
     return 0
 
 
@@ -272,6 +431,16 @@ def main() -> int:
     ps.add_argument("--limit", type=int)
     ps.add_argument("--json", action="store_true")
     ps.set_defaults(fn=search)
+
+    psm = sub.add_parser("semantic", help="semantic search via supermemory")
+    psm.add_argument("query", nargs="?", default="")
+    psm.add_argument("--limit", type=int)
+    psm.add_argument("--json", action="store_true")
+    psm.set_defaults(fn=semantic_search)
+
+    pi = sub.add_parser("index", help="index bookmarks into supermemory")
+    pi.add_argument("--force", action="store_true", help="reindex even if already indexed")
+    pi.set_defaults(fn=index_all)
 
     pl = sub.add_parser("list", help="list bookmarks")
     pl.add_argument("--tag")

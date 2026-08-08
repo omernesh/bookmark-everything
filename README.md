@@ -22,6 +22,7 @@ python3 scripts/bm.py add "https://github.com/karakeep-app/karakeep" \
 
 # search
 python3 scripts/bm.py search "self-hosted bookmarks"
+python3 scripts/bm.py semantic "framework for agent-driven slides"  # meaning-based
 python3 scripts/bm.py list --tag "ai"
 python3 scripts/bm.py tags
 
@@ -33,6 +34,7 @@ python3 scripts/bm.py export --format json
 
 - ✨ No dependencies (Python stdlib only)
 - 🏷️ Tags + categories, ranked search across all fields
+- 🧠 Semantic search via local Supermemory (`bm semantic`) — meaning-based matching with automatic keyword fallback
 - 📝 Human-readable markdown store — greppable, diffable, portable
 - 🤖 Agent-friendly: `--json` output for programmatic use
 

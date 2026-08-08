@@ -51,6 +51,7 @@ Self-hostable bookmark app: links, notes, images, AI tagging, full-text search.
 
 ```bash
 bm search "<query>"            # ranked by title/tags/category/summary/url
+bm semantic "<query>"          # semantic search via supermemory (meaning, not keywords)
 bm search "<query>" --json     # machine-readable, for parsing in replies
 bm list --tag "ai"             # browse by tag
 bm list --category "tools"     # browse by category
@@ -59,6 +60,18 @@ bm get <id>                    # full bookmark (frontmatter + summary)
 ```
 
 Then reply with the best match(es): title, url, tags. If nothing matches, say so plainly — do not invent links.
+
+**Semantic vs keyword:** use `bm semantic` for fuzzy "I remember something about X" queries — it matches by meaning (embeddings) instead of exact words. `bm search` is exact/keyword matching. `bm semantic` auto-falls back to keyword search if supermemory is down.
+
+## Semantic Layer (Supermemory)
+
+Every bookmark is automatically indexed into the local Supermemory instance (localhost:6767, container `hermes-memory`) when saved via `bm add`. The document includes title, url, tags, category, and summary, with metadata `{type: bookmark, id, url}` so semantic hits map back to local files.
+
+- **Auto-indexing:** on every `bm add` (best-effort; if the server is down, the bookmark stays local-only and keyword-searchable).
+- **Reindex all:** `bm index` (skips already-indexed) or `bm index --force` (full rebuild).
+- **Index marker:** `~/.hermes/bookmarks/.supermemory-indexed` — tracks which ids are already in supermemory (prevents duplicates on reindex).
+- **Failure mode:** if supermemory is unreachable, `bm semantic` degrades to `bm search` with a note; nothing is lost.
+- No credentials in the repo — localhost auto-applies the API key.
 
 ## Conventions
 
